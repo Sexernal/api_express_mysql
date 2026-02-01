@@ -1,272 +1,153 @@
 /**
- * Aplicación Express con MySQL - CRUD de Usuarios
- * @description API REST para gestión de usuarios con base de datos MySQL
- * @author Tu Nombre
- * @version 1.0.0
+ * app.js — API con integración de módulos médicos y subida de archivos
  */
 
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
-// Importar configuraciones y middlewares
+// Config y middlewares propios
 const { testConnection } = require('./config/database');
-const { validateJSON, sanitizeInput, validateContentType } = require('./middleware/validation');
+const { sanitizeInput, validateJSON, validateContentType } = require('./middleware/validation'); // usamos validateContentType actualizado
 
-// Importar rutas
+// Rutas principales (asegúrate que existen)
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
 const propietariosRoutes = require('./routes/propietariosRoutes');
 const mascotasRoutes = require('./routes/mascotasRoutes');
+const medicalRoutes = require('./routes/medicalRoutes'); // contiene rutas /medical-records...
 
-// Crear aplicación Express
 const app = express();
-
-// Configuración del puerto
 const PORT = process.env.PORT || 3000;
 const API_PREFIX = process.env.API_PREFIX || '/api/v1';
 
-/**
- * CONFIGURACIÓN DE MIDDLEWARES
- */
+// --- Preparar carpeta uploads (y subcarpeta medical) ---
+const uploadsRoot = path.join(__dirname, 'uploads');
+const medicalUploads = path.join(uploadsRoot, 'medical');
 
-// Middleware para parsear JSON (debe ir antes de las rutas)
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+try {
+  fs.mkdirSync(medicalUploads, { recursive: true });
+  try { fs.chmodSync(medicalUploads, 0o775); } catch(e){}
+  console.log('📁 Carpeta uploads ok:', medicalUploads);
+} catch (err) {
+  console.warn('⚠️ No se pudo crear carpeta uploads:', err.message || err);
+}
 
-// Middleware para CORS
-app.use(cors({
-    origin: process.env.NODE_ENV === 'production'
-        ? ['https://tu-dominio.com'] // Cambiar por tu dominio en producción
-        : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// servir archivos estáticos de uploads
+app.use('/uploads', express.static(uploadsRoot));
 
-// Middlewares personalizados
+// --- Middlewares ---
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+
+// Validamos content type (acepta application/json y multipart/form-data)
 app.use(validateContentType);
+
+// sanitizar y validar JSON (no bloquea multipart)
 app.use(sanitizeInput);
 app.use(validateJSON);
 
-// Middleware para logging de requests (solo en desarrollo)
+// CORS
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://tu-dominio.com']
+    : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'],
+  credentials: true,
+  methods: ['GET','POST','PUT','DELETE','PATCH','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
+}));
+
+// logging en dev
 if (process.env.NODE_ENV !== 'production') {
-    app.use((req, res, next) => {
-        console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-        next();
-    });
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+  });
 }
 
-/**
- * CONFIGURACIÓN DE RUTAS
- */
+/* ---------------- Rutas ---------------- */
 
-// Ruta de health check
+// health
 app.get('/', (req, res) => {
-    res.status(200).json({
-        success: true,
-        message: 'API de Usuarios funcionando correctamente',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        endpoints: {
-            users: `${API_PREFIX}/users`,
-            auth: `${API_PREFIX}/auth`,
-            health: '/',
-            docs: '/docs'
-        }
-    });
+  res.json({ success: true, message: 'API funcionando', version: '1.0.0', timestamp: new Date().toISOString() });
 });
 
-// Ruta de health check para monitoreo
 app.get('/health', async (req, res) => {
-    try {
-        // Verificar conexión a la base de datos
-        const dbConnected = await testConnection();
-
-        res.status(200).json({
-            success: true,
-            status: 'healthy',
-            timestamp: new Date().toISOString(),
-            services: {
-                database: dbConnected ? 'connected' : 'disconnected',
-                server: 'running'
-            }
-        });
-    } catch (error) {
-        res.status(503).json({
-            success: false,
-            status: 'unhealthy',
-            timestamp: new Date().toISOString(),
-            error: error.message
-        });
-    }
+  try {
+    const dbConnected = await testConnection();
+    res.json({ success: true, status: 'healthy', services: { database: dbConnected ? 'connected' : 'disconnected' } });
+  } catch (err) {
+    res.status(503).json({ success: false, status: 'unhealthy', error: err.message });
+  }
 });
 
-// Rutas de la API
+// API routes
 app.use(`${API_PREFIX}/users`, userRoutes);
 app.use(`${API_PREFIX}/auth`, authRoutes);
 app.use(`${API_PREFIX}/propietarios`, propietariosRoutes);
 app.use(`${API_PREFIX}/mascotas`, mascotasRoutes);
 
+// Montamos rutas médicas en la raíz del prefijo API para que coincida con frontend:
+// => frontend usa /medical-records (sin /medical). Quedará: /api/v1/medical-records
+app.use(`${API_PREFIX}`, medicalRoutes);
 
-// Ruta para documentación básica
+// docs (breve)
 app.get('/docs', (req, res) => {
-    res.status(200).json({
-        success: true,
-        message: 'Documentación de la API',
-        baseUrl: `${req.protocol}://${req.get('host')}${API_PREFIX}`,
-        endpoints: {
-            // Autenticación
-            'POST /auth/register': 'Registrar nuevo usuario',
-            'POST /auth/login': 'Iniciar sesión',
-            'GET /auth/profile': 'Obtener perfil (requiere token)',
-            'PUT /auth/profile': 'Actualizar perfil (requiere token)',
-            'POST /auth/refresh': 'Renovar token',
-            'POST /auth/logout': 'Cerrar sesión',
-            // Usuarios
-            'GET /users': 'Obtener todos los usuarios (con paginación)',
-            'GET /users/search?q=nombre': 'Buscar usuarios por nombre',
-            'GET /users/stats': 'Obtener estadísticas de usuarios',
-            'GET /users/:id': 'Obtener usuario por ID',
-            'POST /users': 'Crear nuevo usuario',
-            'PUT /users/:id': 'Actualizar usuario',
-            'DELETE /users/:id': 'Eliminar usuario',
-            // Propietarios (nuevo)
-            'GET /propietarios': 'Listar propietarios (requiere token)',
-            'POST /propietarios': 'Crear propietario { nombre, email, telefono, direccion } (requiere token)',
-            'GET /propietarios/:id': 'Obtener propietario por ID (requiere token)',
-            'PUT /propietarios/:id': 'Actualizar propietario (requiere token)',
-            'DELETE /propietarios/:id': 'Eliminar propietario (requiere token)',
-            // Mascotas (nuevo)
-            'GET /mascotas': 'Listar mascotas (requiere token)',
-            'POST /mascotas': 'Crear mascota { nombre, especie, raza, edad, historial_medico, owner_id } (requiere token)',
-            'GET /mascotas/:id': 'Obtener mascota por ID (requiere token)',
-            'PUT /mascotas/:id': 'Actualizar mascota (requiere token)',
-            'DELETE /mascotas/:id': 'Eliminar mascota (requiere token)'
-        },
-        examples: {
-            register: {
-                nombre: 'Juan Pérez',
-                email: 'juan@ejemplo.com',
-                telefono: '+1234567890',
-                password: 'MiPassword123!'
-            },
-            login: {
-                email: 'juan@ejemplo.com',
-                password: 'MiPassword123!'
-            }
-        }
-    });
+  res.json({
+    success: true,
+    baseUrl: `${req.protocol}://${req.get('host')}${API_PREFIX}`,
+    endpointsSummary: {
+      users: `${API_PREFIX}/users`,
+      auth: `${API_PREFIX}/auth`,
+      propietarios: `${API_PREFIX}/propietarios`,
+      mascotas: `${API_PREFIX}/mascotas`,
+      medical: `${API_PREFIX}/medical-records`
+    }
+  });
 });
 
-/**
- * MANEJO DE ERRORES
- */
+/* ---------- Manejo errores / 404 ---------- */
 
-// Middleware para rutas no encontradas
 app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        message: 'Ruta no encontrada',
-        requestedUrl: req.originalUrl,
-        availableEndpoints: {
-            health: '/',
-            docs: '/docs',
-            auth: `${API_PREFIX}/auth`,
-            users: `${API_PREFIX}/users`,
-            propietarios: `${API_PREFIX}/propietarios`,
-            mascotas: `${API_PREFIX}/mascotas`
-        }
-    });
+  res.status(404).json({ success: false, message: 'Ruta no encontrada', requestedUrl: req.originalUrl });
 });
 
-// Middleware global de manejo de errores
 app.use((err, req, res, next) => {
-    console.error('Error global:', err);
-
-    // Error de JSON malformado
-    if (err.type === 'entity.parse.failed') {
-        return res.status(400).json({
-            success: false,
-            message: 'JSON malformado',
-            error: 'La estructura del JSON enviado no es válida'
-        });
-    }
-
-    // Error de payload muy grande
-    if (err.type === 'entity.too.large') {
-        return res.status(413).json({
-            success: false,
-            message: 'Payload demasiado grande',
-            error: 'El tamaño de los datos enviados excede el límite permitido'
-        });
-    }
-
-    // Error genérico del servidor
-    res.status(err.status || 500).json({
-        success: false,
-        message: 'Error interno del servidor',
-        error: process.env.NODE_ENV === 'production'
-            ? 'Algo salió mal en el servidor'
-            : err.message,
-        timestamp: new Date().toISOString()
-    });
+  console.error('Error global:', err);
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ success: false, message: 'JSON malformado' });
+  }
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ success: false, message: 'Payload demasiado grande' });
+  }
+  res.status(err.status || 500).json({
+    success: false,
+    message: process.env.NODE_ENV === 'production' ? 'Error interno servidor' : err.message,
+    timestamp: new Date().toISOString()
+  });
 });
 
-/**
- * INICIALIZACIÓN DEL SERVIDOR
- */
+/* ---------- Inicialización ---------- */
 
-// Función para inicializar la aplicación
 const initializeApp = async () => {
-    try {
-        // Probar conexión a la base de datos
-        console.log('🔍 Verificando conexión a la base de datos...');
-        const dbConnected = await testConnection();
+  try {
+    console.log('🔍 Verificando conexión a base de datos...');
+    await testConnection();
+    const server = app.listen(PORT, () => {
+      console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
+      console.log(`📋 API base: http://localhost:${PORT}${API_PREFIX}`);
+    });
 
-        if (!dbConnected) {
-            console.error('❌ No se pudo conectar a la base de datos');
-            console.log('💡 Asegúrate de que MySQL esté ejecutándose y las credenciales sean correctas');
-            console.log('💡 Revisa el archivo .env para la configuración de la base de datos');
-        }
-
-        // Iniciar servidor
-        const server = app.listen(PORT, () => {
-            console.log('🚀 Servidor iniciado correctamente');
-            console.log(`🌐 URL: http://localhost:${PORT}`);
-            console.log(`📋 API Base: http://localhost:${PORT}${API_PREFIX}`);
-            console.log(`📖 Documentación: http://localhost:${PORT}/docs`);
-            console.log(`💚 Health Check: http://localhost:${PORT}/health`);
-            console.log(`🔧 Entorno: ${process.env.NODE_ENV || 'development'}`);
-        });
-
-        // Manejo graceful de cierre del servidor
-        process.on('SIGTERM', () => {
-            console.log('🛑 Recibida señal SIGTERM, cerrando servidor...');
-            server.close(() => {
-                console.log('✅ Servidor cerrado correctamente');
-                process.exit(0);
-            });
-        });
-
-        process.on('SIGINT', () => {
-            console.log('🛑 Recibida señal SIGINT (Ctrl+C), cerrando servidor...');
-            server.close(() => {
-                console.log('✅ Servidor cerrado correctamente');
-                process.exit(0);
-            });
-        });
-
-    } catch (error) {
-        console.error('❌ Error al inicializar la aplicación:', error.message);
-        process.exit(1);
-    }
+    process.on('SIGTERM', () => server.close(() => process.exit(0)));
+    process.on('SIGINT', () => server.close(() => process.exit(0)));
+  } catch (err) {
+    console.error('❌ Error inicializando app:', err.message || err);
+    process.exit(1);
+  }
 };
 
-// Inicializar aplicación solo si este archivo se ejecuta directamente
-if (require.main === module) {
-    initializeApp();
-}
+if (require.main === module) initializeApp();
 
-// Exportar app para pruebas
 module.exports = app;

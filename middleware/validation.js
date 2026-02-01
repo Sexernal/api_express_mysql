@@ -1,14 +1,8 @@
-/**
- * Middleware de Validación
- * @description Contiene todas las validaciones para las rutas de usuarios
- */
-
+// middleware/validation.js
 const { body, param } = require('express-validator');
 
-/**
- * Validaciones para los datos de usuario
- * Incluye validaciones para nombre, email y teléfono
- */
+/* -------------------- Validaciones originales / reutilizables -------------------- */
+
 const validateUser = [
     body('nombre')
         .trim()
@@ -39,10 +33,6 @@ const validateUser = [
         .withMessage('El teléfono debe tener entre 7 y 20 caracteres')
 ];
 
-/**
- * Validaciones para registro de usuario
- * Incluye validación de contraseña
- */
 const validateRegister = [
     body('nombre')
         .trim()
@@ -79,9 +69,6 @@ const validateRegister = [
         .withMessage('La contraseña debe contener al menos: 1 minúscula, 1 mayúscula, 1 número y 1 carácter especial')
 ];
 
-/**
- * Validaciones para login
- */
 const validateLogin = [
     body('email')
         .trim()
@@ -96,9 +83,6 @@ const validateLogin = [
         .withMessage('La contraseña es requerida')
 ];
 
-/**
- * Validaciones para actualización de perfil
- */
 const validateProfileUpdate = [
     body('nombre')
         .optional()
@@ -138,20 +122,12 @@ const validateProfileUpdate = [
         .withMessage('La nueva contraseña debe contener al menos: 1 minúscula, 1 mayúscula, 1 número y 1 carácter especial')
 ];
 
-/**
- * Validación para el parámetro ID de usuario
- * Verifica que sea un número entero positivo
- */
 const validateUserId = [
     param('id')
         .isInt({ min: 1 })
         .withMessage('El ID debe ser un número entero positivo')
 ];
 
-/**
- * Validación para parámetros de paginación
- * Verifica que page y limit sean números válidos
- */
 const validatePagination = [
     body('page')
         .optional()
@@ -164,10 +140,6 @@ const validatePagination = [
         .withMessage('El límite debe ser un número entre 1 y 100')
 ];
 
-/**
- * Validación para búsquedas
- * Verifica que el término de búsqueda tenga una longitud mínima
- */
 const validateSearch = [
     body('q')
         .trim()
@@ -175,95 +147,6 @@ const validateSearch = [
         .withMessage('El término de búsqueda debe tener entre 1 y 100 caracteres')
 ];
 
-/**
- * Middleware para sanitizar y limpiar datos de entrada
- * @param {Object} req - Objeto de solicitud Express
- * @param {Object} res - Objeto de respuesta Express
- * @param {Function} next - Función next de Express
- */
-const sanitizeInput = (req, res, next) => {
-    if (req.body) {
-        // Eliminar espacios en blanco al inicio y final de strings
-        Object.keys(req.body).forEach(key => {
-            if (typeof req.body[key] === 'string') {
-                req.body[key] = req.body[key].trim();
-            }
-        });
-
-        // Eliminar campos vacíos
-        Object.keys(req.body).forEach(key => {
-            if (req.body[key] === '' || req.body[key] === null || req.body[key] === undefined) {
-                delete req.body[key];
-            }
-        });
-    }
-    next();
-};
-
-/**
- * Middleware para validar JSON malformado
- * @param {Error} err - Error object
- * @param {Object} req - Objeto de solicitud Express
- * @param {Object} res - Objeto de respuesta Express
- * @param {Function} next - Función next de Express
- */
-const validateJSON = (err, req, res, next) => {
-    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-        return res.status(400).json({
-            success: false,
-            message: 'JSON malformado',
-            error: 'La estructura del JSON enviado no es válida'
-        });
-    }
-    next(err);
-};
-
-/**
- * Middleware para manejar errores de validación
- * @param {Object} req - Objeto de solicitud Express
- * @param {Object} res - Objeto de respuesta Express
- * @param {Function} next - Función next de Express
- */
-const handleValidationErrors = (req, res, next) => {
-    const { validationResult } = require('express-validator');
-    const errors = validationResult(req);
-    
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            success: false,
-            message: 'Errores de validación',
-            errors: errors.array().map(error => ({
-                field: error.path || error.param,
-                message: error.msg,
-                value: error.value
-            }))
-        });
-    }
-    next();
-};
-
-/**
- * Middleware para validar Content-Type en POST y PUT
- * @param {Object} req - Objeto de solicitud Express
- * @param {Object} res - Objeto de respuesta Express
- * @param {Function} next - Función next de Express
- */
-const validateContentType = (req, res, next) => {
-    if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
-        if (!req.is('application/json')) {
-            return res.status(400).json({
-                success: false,
-                message: 'Content-Type debe ser application/json'
-            });
-        }
-    }
-    next();
-};
-
-/**
- * Validaciones específicas para actualización parcial (PATCH)
- * Permite campos opcionales para actualizaciones parciales
- */
 const validateUserPartial = [
     body('nombre')
         .optional()
@@ -290,6 +173,75 @@ const validateUserPartial = [
         .isLength({ min: 7, max: 20 })
         .withMessage('El teléfono debe tener entre 7 y 20 caracteres')
 ];
+
+/* -------------------- Sanitización y helpers -------------------- */
+
+const sanitizeInput = (req, res, next) => {
+    if (req.body) {
+        Object.keys(req.body).forEach(key => {
+            if (typeof req.body[key] === 'string') {
+                req.body[key] = req.body[key].trim();
+            }
+        });
+        Object.keys(req.body).forEach(key => {
+            if (req.body[key] === '' || req.body[key] === null || req.body[key] === undefined) {
+                delete req.body[key];
+            }
+        });
+    }
+    next();
+};
+
+const validateJSON = (err, req, res, next) => {
+    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+        return res.status(400).json({
+            success: false,
+            message: 'JSON malformado',
+            error: 'La estructura del JSON enviado no es válida'
+        });
+    }
+    next(err);
+};
+
+const handleValidationErrors = (req, res, next) => {
+    const { validationResult } = require('express-validator');
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({
+            success: false,
+            message: 'Errores de validación',
+            errors: errors.array().map(error => ({
+                field: error.path || error.param,
+                message: error.msg,
+                value: error.value
+            }))
+        });
+    }
+    next();
+};
+
+/**
+ * validateContentType
+ * Ahora permite application/json y multipart/form-data (para uploads).
+ * Solo rechaza explícitamente tipos que no sean JSON ni multipart cuando se espera body.
+ */
+const validateContentType = (req, res, next) => {
+    if (!['POST', 'PUT', 'PATCH'].includes(req.method)) return next();
+
+    const ct = (req.headers['content-type'] || '').toLowerCase();
+
+    // Si viene multipart/form-data -> permitimos
+    if (ct.includes('multipart/form-data')) return next();
+
+    // Si viene application/json -> permitimos
+    if (ct.includes('application/json')) return next();
+
+    // Si no viene content-type o viene algo distinto -> rechazamos con mensaje claro
+    return res.status(400).json({
+        success: false,
+        message: 'Content-Type debe ser application/json o multipart/form-data'
+    });
+};
 
 module.exports = {
     validateUser,
