@@ -12,13 +12,16 @@ require('dotenv').config();
 const { testConnection } = require('./config/database');
 const { sanitizeInput, validateJSON, validateContentType } = require('./middleware/validation'); // usamos validateContentType actualizado
 
-// Rutas principales (asegúrate que existen)
+// Rutas principales (solo require, no deben requerir app)
+// Asegúrate que en tus archivos de rutas no haya `require('../app')` (evita dependencia circular)
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
 const propietariosRoutes = require('./routes/propietariosRoutes');
 const mascotasRoutes = require('./routes/mascotasRoutes');
 const medicalRoutes = require('./routes/medicalRoutes'); // contiene rutas /medical-records...
+const citasRoutes = require('./routes/citasRoutes'); // router de citas
 
+// Crear app y constantes (DEBEN ir antes de usar app.use)
 const app = express();
 const PORT = process.env.PORT || 3000;
 const API_PREFIX = process.env.API_PREFIX || '/api/v1';
@@ -93,6 +96,9 @@ app.use(`${API_PREFIX}/mascotas`, mascotasRoutes);
 // => frontend usa /medical-records (sin /medical). Quedará: /api/v1/medical-records
 app.use(`${API_PREFIX}`, medicalRoutes);
 
+// Rutas de citas
+app.use(`${API_PREFIX}/citas`, citasRoutes);
+
 // docs (breve)
 app.get('/docs', (req, res) => {
   res.json({
@@ -103,7 +109,8 @@ app.get('/docs', (req, res) => {
       auth: `${API_PREFIX}/auth`,
       propietarios: `${API_PREFIX}/propietarios`,
       mascotas: `${API_PREFIX}/mascotas`,
-      medical: `${API_PREFIX}/medical-records`
+      medical: `${API_PREFIX}/medical-records`,
+      citas: `${API_PREFIX}/citas`
     }
   });
 });
